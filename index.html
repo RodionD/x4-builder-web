@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>X4 Builder Web</title>
+<link rel="stylesheet" href="css/app.css?v=20261116184906">
+</head>
+<body>
+<header class="top">
+  <h1>X4 Builder <span>Web</span></h1>
+  <span class="copy small">по <a href="https://www.elite-games.ru/conference/viewtopic.php?t=65406&amp;highlight=builder" target="_blank" rel="noopener">X4 Builder</a> © <a href="https://www.elite-games.ru/conference/profile.php?mode=viewprofile&amp;u=33188" target="_blank" rel="noopener">alexusvm</a>, 2018–2025</span>
+  <nav class="pages" id="pages" hidden><button data-page="stations" class="on">Станции</button><button data-page="wares">Товары</button><button data-page="mods">Моды</button><button data-page="terraform">Терраформирование</button><button data-page="factions">Фракции</button><button data-page="diplomacy">Дипломатия</button><button data-page="ships">Корабли</button><button data-page="military">Вооружение</button><button data-page="savegame">Сохранение</button><button data-page="map">Карта</button></nav>
+  <label>Язык игры
+    <select id="lang">
+      <option value="7">Русский</option><option value="44">English</option><option value="49">Deutsch</option>
+      <option value="33">Français</option><option value="39">Italiano</option><option value="34">Español</option>
+      <option value="48">Polski</option><option value="55">Português</option><option value="81">日本語</option>
+      <option value="82">한국어</option><option value="86">简体中文</option><option value="88">繁體中文</option>
+    </select></label>
+  <label>Баланс <select id="period"></select></label>
+  <label>Цены <select id="priceMode"><option value="min">минимальные</option><option value="avg">средние</option><option value="max">максимальные</option></select></label>
+  <span id="gameInfo" class="small"></span>
+  <span class="grow"></span>
+  <button data-act="extensions">Расширения</button>
+  <button data-act="reload" title="Выбрать другую папку игры (запоминается)">Изменить папку игры</button>
+</header>
+
+<section id="start">
+  <div class="card">
+    <h2>Планировщик станций X4: Foundations</h2>
+    <p>Укажите папку установленной игры — ту, где лежат <code>01.cat</code> … <code>09.cat</code> и папка <code>extensions</code>
+      (в Steam: <code>…/steamapps/common/X4 Foundations</code>). Данные читаются прямо в браузере, никуда не отправляются.</p>
+    <p id="lastFolder" hidden><button id="lastFolderBtn" class="big"></button></p>
+    <button id="pickBtn" class="big">Выбрать папку игры</button>
+    <input id="dirInput" type="file" webkitdirectory directory multiple hidden>
+    <input id="planDirInput" type="file" webkitdirectory directory multiple hidden>
+    <p class="small" id="altPick">Браузер не даёт выбрать папку (Windows: игра в <code>Program Files</code> — «содержит системные файлы»)? <a href="#" id="altPickBtn">Открыть её как набор файлов</a> — работает везде, но папку придётся выбирать при каждом открытии.</p>
+    <p id="pickNote" class="small" hidden>Этот браузер покажет окно «загрузить файлы»: файлы не загружаются в сеть, браузер только даёт странице их прочитать. Запомнить папку он не умеет: её придётся выбирать при каждом открытии (в Chrome, Edge, Opera, Яндекс.Браузере папка запоминается).</p>
+    <p id="status" class="status">Выберите папку игры</p>
+    <p class="small copy">Браузерная версия программы <a href="https://www.elite-games.ru/conference/viewtopic.php?t=65406&amp;highlight=builder" target="_blank" rel="noopener">X4 Builder</a> (elite-games.ru). Copyright © <a href="https://www.elite-games.ru/conference/profile.php?mode=viewprofile&amp;u=33188" target="_blank" rel="noopener">alexusvm</a>, 2018–2025.</p>
+  </div>
+</section>
+
+<div id="app" hidden>
+  <aside class="side">
+    <h3>Комплексы</h3>
+    <ul id="cxList" class="list"></ul>
+    <div class="btns">
+      <button data-act="newCx">Новый</button><button data-act="dupCx">Копия</button><button data-act="delCx" class="danger">Удалить</button>
+    </div>
+    <div class="btns">
+      <button data-act="exportCx">Сохранить в файл</button><button data-act="importCx">Открыть файл</button>
+      <button data-act="exportAll">Все в файл</button>
+      <button data-act="importPlans" title="constructionplans.xml из папки профиля игры">Планы игрока (XML)</button>
+      <button data-act="planDir" title="Папка чертежей игры (…/X4/&lt;id&gt;/constructionplan): до перезагрузки страницы «достройка» берёт чертёж любой станции из неё сама (нужно, когда билдер открыт не через пульт и браузер не даёт доступа к папкам)">Папка чертежей</button>
+      <button data-act="baseOpen" title="План игры (XML из папки constructionplan) как основа текущей станции: его модули и соединители останутся на месте, новые пристыкуются к ним">Чертёж для достройки (XML)</button>
+    </div>
+    <h3>Планы игры</h3>
+    <input id="planQ" placeholder="Поиск плана">
+    <ul id="plans" class="list plans"></ul>
+  </aside>
+  <main id="main"></main>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<dialog id="layDlg" class="wide">
+  <h3>Раскладка станции</h3>
+  <div id="layBody"></div>
+  <div class="btns"><button id="laySave">Сохранить план для игры</button><button id="layClose">Закрыть</button></div>
+</dialog>
+
+<dialog id="extDlg">
+  <h3>Расширения и DLC</h3>
+  <ul class="list"></ul>
+  <div class="btns"><button id="extApply">Применить и перезагрузить</button><button id="extCancel">Отмена</button></div>
+</dialog>
+
+<dialog id="expDlg" class="wide">
+  <h3>Автодостройка станции</h3>
+  <div id="expBody"></div>
+  <div id="expResult"></div>
+  <div class="btns"><button id="expCalc">Рассчитать</button><button id="expApply" disabled>Применить</button><button id="expClose">Закрыть</button></div>
+</dialog>
+
+<script src="js/catfs.js?v=20261116184906"></script>
+<script src="js/xmldiff.js?v=20261116184906"></script>
+<script src="js/gamedata.js?v=20261119181733"></script>
+<script src="js/planner.js?v=20261120092725"></script>
+<script src="js/io.js?v=20261119192443"></script>
+<script src="js/expand.js?v=20261119185757"></script>
+<script src="js/wares.js?v=20261116184906"></script>
+<script src="js/mods_defaults.js?v=20261116184906"></script>
+<script src="js/mods.js?v=20261119105804"></script>
+<script src="js/terraform.js?v=20261119105804"></script>
+<script src="js/factions.js?v=20261116184906"></script>
+<script src="js/diplomacy.js?v=20261119105804"></script>
+<script src="js/ships.js?v=20261119105804"></script>
+<script src="js/military.js?v=20261119105804"></script>
+<script src="js/logistics.js?v=20261119182127"></script>
+<script src="js/shipbuild.js?v=20261119185757"></script>
+<script src="js/layout.js?v=20261119185757"></script>
+<script src="js/stationloadout.js?v=20261120092725"></script>
+<script src="js/savegame.js?v=20261119105804"></script>
+<script src="js/map.js?v=20261119105804"></script>
+<script src="js/ui.js?v=20261120092725"></script>
+</body>
+</html>
