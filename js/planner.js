@@ -47,6 +47,7 @@ const Planner = (() => {
     if (s.connRace != null) st.connRace = strOr(s.connRace, null);
     if (s.sector != null) st.sector = strOr(s.sector, '');
     if (isObj(s.loadout)) st.loadout = { mode: ['none', 'mk1', 'mk2', 'best'].includes(s.loadout.mode) ? s.loadout.mode : 'none', race: strOr(s.loadout.race, 'argon'), ...(s.loadout.missile != null ? { missile: s.loadout.missile !== false } : {}), ...(s.loadout.misRate != null ? { misRate: numOr(s.loadout.misRate, 0, 0) } : {}), ...(s.loadout.droneRate != null ? { droneRate: numOr(s.loadout.droneRate, 0, 0) } : {}) };
+    if (s.storageHours != null) st.storageHours = numOr(s.storageHours, 3, 1, 48);
     if (s.shipOpen) st.shipOpen = true;
     if (Array.isArray(s.shipOrders)) st.shipOrders = s.shipOrders.filter(o => isObj(o) && o.macro != null && !isObj(o.macro))
       .map(o => ({ macro: String(o.macro), perDay: numOr(o.perDay, 1, 0), loadout: ['hull', 'mk1', 'best'].includes(o.loadout) ? o.loadout : 'mk1' }));

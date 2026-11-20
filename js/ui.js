@@ -269,7 +269,7 @@ const UI = (() => {
     const pname = PERIODS.find(p => p[0] == S.settings.period)[1];
     const rows = st.modules.map(moduleRow).join('');
     const wfRaces = r.races.map(x => `${esc(Game.raceName(x.race))}: ${fmt(r.spread[x.race] || 0)} / ${fmt(x.capacity)}`).join(', ');
-    const demand = Expand.storageDemand(Planner.calcStation(st, 3600));
+    const demand = Expand.storageDemand(Planner.calcStation(st, 3600), Expand.storeHours(st));
     const storage = Object.keys(TRANSPORT).filter(t => r.storage.get(t) || demand.get(t)).map(t => {
       const cap = r.storage.get(t) || 0, need = demand.get(t) || 0;
       return `<tr><td>${TRANSPORT[t]}</td><td>${fmt(cap)}</td><td>${fmt(need)}</td><td class="${cap < need ? 'neg' : 'pos'}">${need ? fmt(cap / need * 100) + '%' : '—'}</td></tr>`;
@@ -673,7 +673,8 @@ const UI = (() => {
           <td class="nm">${esc(Game.wareName(x.id))}${x.ref === 'workforce' ? ' <small>(рабочим)</small>' : x.ref === 'alloy' ? ' <small>(аллографен)</small>' : ''}</td>
           <td>${x.methods.length > 1 ? `<select data-exm="${esc(x.id)}">${x.methods.map(m => `<option value="${esc(m)}" ${m === x.method ? 'selected' : ''}>${esc(Game.text(Game.production(x.id, m).name) || m)}</option>`).join('')}</select>` : esc(Game.text(Game.production(x.id, x.method).name) || x.method)}</td>
           <td class="small">${(() => { const fm = Expand.factory(x.id, x.method); return fm ? esc(Game.moduleName(fm.macro)) + (fm.owners && fm.owners.length ? ` <span title="Кто продаёт чертёж">· чертёж: ${esc(fm.owners.map(o => Game.factionName(o)).join(', '))}</span>` : '') : ''; })()}</td></tr>`).join('')}</tbody></table>` : '<p class="hint">Недостающих товаров нет.</p>'}</fieldset>
-      <fieldset><legend><label><input type="checkbox" id="exSt" ${o.storagesOn ? 'checked' : ''}> Склады (запас на час)</label></legend>
+      <fieldset><legend><label><input type="checkbox" id="exSt" ${o.storagesOn ? 'checked' : ''}> Склады</label></legend>
+        запас на <input type="number" id="exStHours" min="1" max="48" step="1" value="${esc(o.storageHours)}" style="width:4em"> ч потока каждого товара (не меньше 5000 м³ на товар) + место под разгрузку двух больших трюмов, если тип груза привозят корабли<br>
         Раса складов ${raceSel('exStRace', Expand.storageRaces(), o.storageRace)}
         ${o.transports.map(t => `<label class="inl"><input type="checkbox" data-ext="${esc(t.id)}" ${t.enabled ? 'checked' : ''}> ${esc(TRANSPORT[t.id] || t.id)}</label>`).join('')}</fieldset>
       <fieldset><legend>Стыковка (если на станции её нет)</legend>
@@ -686,7 +687,7 @@ const UI = (() => {
     o.workforce = $('#exWf').checked; o.habRace = $('#exHabRace').value;
     if (o.shipMods) o.shipMods.on = $('#exShipMods').checked;
     if (o.alloy) { o.alloy.on = $('#exAlloy').checked; o.alloy.n = Math.max(1, Math.min(50, parseInt($('#exAlloyN').value, 10) || 1)); }
-    o.resourcesOn = $('#exRes').checked; o.storagesOn = $('#exSt').checked; o.storageRace = $('#exStRace').value;
+    o.resourcesOn = $('#exRes').checked; o.storagesOn = $('#exSt').checked; o.storageHours = Math.max(1, Math.min(48, parseInt($('#exStHours').value, 10) || 3)); EX.st.storageHours = o.storageHours; o.storageRace = $('#exStRace').value;
     o.dockOn = $('#exDock').checked; o.pierOn = $('#exPier').checked; o.dockRace = $('#exDockRace').value;
     d.querySelectorAll('[data-exr]').forEach(i => { o.resources.get(i.dataset.exr).enabled = i.checked; });
     d.querySelectorAll('[data-exm]').forEach(i => { o.resources.get(i.dataset.exm).method = i.value; });

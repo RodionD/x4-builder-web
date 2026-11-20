@@ -81,14 +81,24 @@ const Expand = (() => {
     return w.productions.filter(p => factory(wareId, p.method)).map(p => p.method);
   }
 
-  // one hour of gross production (or consumption) volume by transport (GetStationCargos limit_volume)
-  function storageDemand(r) {
-    const need = new Map();
+  // storage need by transport (the player, 2026-11-20: the yard's modules stood still, their products had nowhere to go -
+  // the game gives every ware its own share of a storage type, so one hour of the station's total flow was far too little):
+  // the sum over the wares of HOURS of the ware's gross flow (the larger of what is made and used, so intermediates count
+  // once with their full flow), at least STORE_MIN m3 a ware; and for a transport brought in by ships (a ware of it with
+  // a deficit: ore, gas, ice, scrap, bought wares) room for two full holds of a large ship (a miner L unloads ~60 000 m3
+  // at once - the yard's gas miners could not unload into 31 000 free)
+  const STORE_MIN = 5000, HOLD_RESERVE = 2 * 62000;
+  const storeHours = st => (st && st.storageHours > 0 ? st.storageHours : 3);
+  function storageDemand(r, hours = 3) {
+    const need = new Map(), inbound = new Set();
     for (const b of r.balance.values()) {
       if (!b.transport || b.transport === 'workunit') continue;
-      const v = (b.produced > 0 ? b.produced : b.consumed) * (b.volume || 1);
-      need.set(b.transport, (need.get(b.transport) || 0) + v);
+      const flow = Math.max(b.produced || 0, b.consumed || 0) * (b.volume || 1);
+      if (!flow) continue;
+      need.set(b.transport, (need.get(b.transport) || 0) + Math.max(flow * hours, STORE_MIN));
+      if (b.net < 0) inbound.add(b.transport);
     }
+    for (const t of inbound) need.set(t, need.get(t) + HOLD_RESERVE);
     return need;
   }
 
@@ -132,7 +142,7 @@ const Expand = (() => {
     const habRace = prev ? prev.habRace : firstRace;
     const food = Game.raceMethod('workunit_busy', habRace);
     if (food) for (const x of food.primary) keep(x.ware, 'workforce');
-    const transports = new Set([...storageDemand(r).keys()]);
+    const transports = new Set([...storageDemand(r, storeHours(st)).keys()]);
     for (const [id, x] of res) {
       const ids = [id, ...((Game.production(id, x.method) || { primary: [] }).primary.map(p => p.ware))];
       for (const i of ids) { const w = Game.D.wares.get(i); if (w && w.transport && w.transport !== 'workunit') transports.add(w.transport); }
@@ -146,6 +156,7 @@ const Expand = (() => {
       resourcesOn: prev ? prev.resourcesOn : true,
       resources: res,
       storagesOn: prev ? prev.storagesOn : true,
+      storageHours: prev && prev.storageHours ? prev.storageHours : storeHours(st),
       // docking: a dock with M / S pads and a pier for L / XL traders when the station has none
       dockOn: prev ? prev.dockOn : true,
       pierOn: prev ? prev.pierOn : true,
@@ -237,7 +248,7 @@ const Expand = (() => {
       if (opt.workforce) changed = doHabs() || changed;
       if (opt.storagesOn) {
         const r = Planner.calcStation(work, 3600);
-        const need = storageDemand(r);
+        const need = storageDemand(r, opt.storageHours || storeHours(work));
         // every transport the station has now (new inputs such as ore or ice appear while expanding), unless switched off
         const off = opt.transportsOff || new Set(opt.transports.filter(t => !t.enabled).map(t => t.id));
         for (const t of [...need.keys()].filter(k => k !== 'condensate' && !off.has(k)).map(id => ({ id, enabled: true }))) {
@@ -273,7 +284,7 @@ const Expand = (() => {
     if (opt.storagesOn) {
       repack('storage');
       const r = Planner.calcStation(work, 3600);
-      const need = storageDemand(r);
+      const need = storageDemand(r, opt.storageHours || storeHours(work));
       const off = opt.transportsOff || new Set(opt.transports.filter(t => !t.enabled).map(t => t.id));
       for (const [t, demand] of need) {
         if (t === 'condensate' || off.has(t)) continue;
@@ -320,5 +331,5 @@ const Expand = (() => {
     return { added, station: work, notes };
   }
 
-  return { options, run, habRaces, storageRaces, dockRaces, methods, factory, storageDemand };
+  return { options, run, habRaces, storageRaces, dockRaces, methods, factory, storageDemand, storeHours };
 })();
