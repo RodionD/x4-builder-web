@@ -130,5 +130,16 @@ const StationLoadout = (() => {
     return x + `${indent}  </groups>\n${indent}</upgrades>\n`;
   }
 
-  return { compute, html, ensure, ready, upgradesXml, supply, MODES };
+  // before a layout or a plan is written: the shield and turret data loaded first (else compute() gave nothing and the
+  // plan went out without turrets - the player, 2026-11-21: "не срабатывает оснащение станции")
+  async function prepare(st) {
+    if (!st.loadout || st.loadout.mode === 'none') return null;
+    if (!ready()) {
+      if (!Ships.api.loaded) await Ships.api.load(() => {});
+      if (!Military.api.items().length) await Military.api.load(() => {});
+    }
+    return compute(st);
+  }
+
+  return { compute, prepare, html, ensure, ready, upgradesXml, supply, MODES };
 })();

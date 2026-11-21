@@ -605,7 +605,7 @@ const UI = (() => {
     const d = $('#layDlg');
     $('#layBody').innerHTML = '<p class="hint">Расстановка…</p>';
     d.showModal();
-    if (st.loadout && st.loadout.mode !== 'none' && StationLoadout.ready()) StationLoadout.compute(st);
+    await StationLoadout.prepare(st);
     const L = await Layout.make(st, t => { $('#layBody').innerHTML = `<p class="hint">${esc(t)}</p>`; });
     const view = (ax, ay, title) => {
       const xs = L.entries.flatMap(e => [e.box.lo[ax], e.box.hi[ax]]), ys = L.entries.flatMap(e => [e.box.lo[ay], e.box.hi[ay]]);

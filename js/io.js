@@ -149,7 +149,7 @@ const IO = (() => {
   }
   // -> {where: 'folder'|'download', name, folder}
   async function savePlan(st, change, progress) {
-    if (typeof StationLoadout !== 'undefined' && st.loadout && st.loadout.mode !== 'none') StationLoadout.compute(st);
+    if (typeof StationLoadout !== 'undefined') await StationLoadout.prepare(st);
     const L = typeof Layout !== 'undefined' && st.layoutOn !== false ? await Layout.make(st, progress) : null;
     const name = planFileName(st), text = planXml(st, L);
     // the plan saved for the game becomes the station's base: the next extend layout starts from it (the player,
