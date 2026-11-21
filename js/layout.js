@@ -314,6 +314,10 @@ const Layout = (() => {
         if (dock) { const w2 = { lo: wb.lo.map((v, i) => v + D[i] * APPROACH), hi: wb.hi.map((v, i) => v + D[i] * APPROACH) };
           wb = { lo: wb.lo.map((v, i) => Math.min(v, w2.lo[i])), hi: wb.hi.map((v, i) => Math.max(v, w2.hi[i])) }; }
         if (!check(wb)) continue;
+        // never on the very spot of another module: two leaves (teladi medical supplies factories) hung from different
+        // crosses met back to back at one origin - their boxes only touch (the overlap tolerance), the game's own plans
+        // never put two modules within 200 m of each other's origin (Гиперион, 2026-11-21)
+        if (placed.some(p => !p.conn && Math.hypot(p.T.p[0] - T.p[0], p.T.p[1] - T.p[1], p.T.p[2] - T.p[2]) < 50)) continue;
         // the last resorts (loose, see make's loop): a dock's own box checked as well (the box with the approach is
         // shrunk for the check by its own size, which may free the near side of the dock itself)
         if (loose && dock && !check(worldBox(g.box, T))) continue;
