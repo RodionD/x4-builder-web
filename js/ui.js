@@ -75,10 +75,11 @@ const UI = (() => {
       r.onupgradeneeded = () => r.result.createObjectStore(DB.store);
       r.onerror = () => res(null);
       r.onsuccess = () => {
-        const tx = r.result.transaction(DB.store, mode);
+        const db = r.result;
+        const tx = db.transaction(DB.store, mode);
         const q = fn(tx.objectStore(DB.store));
-        tx.oncomplete = () => res(q && q.result !== undefined ? q.result : null);
-        tx.onerror = () => res(null);
+        tx.oncomplete = () => { db.close(); res(q && q.result !== undefined ? q.result : null); };
+        tx.onerror = () => { db.close(); res(null); };
       };
     });
   }
@@ -121,13 +122,18 @@ const UI = (() => {
   }
 
   async function startLoad(list) {
+    if (!CatFS.setFiles(list)) {
+      const msg = 'В выбранной папке нет архивов игры (01.cat). Выберите папку, где лежит X4.exe / X4 и файлы 01.cat ... 09.cat.';
+      if (S.loaded) toast(msg); else status(msg);
+      return;
+    }
     // also when the folder is changed from inside the app: the start screen shows the progress
     $('#app').hidden = true; $('#start').hidden = false;
     $('#start').classList.add('busy');
     try {
-      if (!CatFS.setFiles(list)) { status('В выбранной папке нет архивов игры (01.cat). Выберите папку, где лежит X4.exe / X4 и файлы 01.cat ... 09.cat.'); return; }
       const enabled = S.settings.extensions ? new Set(S.settings.extensions) : null;
-      await CatFS.mount(enabled, status);
+      const known = S.settings.extensionsKnown ? new Set(S.settings.extensionsKnown) : null;
+      await CatFS.mount(enabled, status, known);
       await Game.loadAll(S.settings.lang, status);
       for (const p of Object.values(PAGES)) if (p.reset) p.reset();
       S.gamePlans = await IO.gamePlans().catch(() => []);
@@ -280,7 +286,7 @@ const UI = (() => {
           <div class="sthead">
             <input id="stName" value="${esc(st.name)}" aria-label="Название станции">
             <button data-act="dupStation">Копия</button><button data-act="delStation" class="danger">Удалить станцию</button>
-            <button data-act="exportPlan" title="Файл плана для игры (в папку профиля constructionplan); модули расставлены сеткой, соединить их — в редакторе станции">План для игры</button>
+            <button data-act="exportPlan" title="Файл плана для игры (в папку профиля constructionplan); с отметкой «соединить модули» — авторасстановка со связями, без неё — сеткой">План для игры</button>
             ${window.showDirectoryPicker ? '<button data-act="exportPlanTo" title="Выбрать другую папку для планов">…</button>' : ''}
             <button data-act="layout" title="Авторасстановка модулей: компактно, доки снаружи; предпросмотр">Раскладка</button>
             <label class="inl small" title="Соединить модули в плане для игры (иначе — сеткой, без соединений)"><input type="checkbox" id="layOn" ${st.layoutOn !== false ? 'checked' : ''}> соединить модули</label>
@@ -371,6 +377,10 @@ const UI = (() => {
   function renderTotal(c) {
     // the build cost as costTable: the resources and the yard price are two estimates of the same thing (the turrets and
     // shields are in both), so two columns, not their sum
+    for (const s of c.stations) {
+      if (s.shipOrders && s.shipOrders.length && Ships.api.loaded && Military.api.items().length) ShipBuild.compute(s);
+      if (s.loadout && s.loadout.mode !== 'none' && StationLoadout.ready()) StationLoadout.compute(s);
+    }
     const res = Planner.calcComplex(c, S.settings.period);
     const pname = PERIODS.find(p => p[0] == S.settings.period)[1];
     const sts = c.stations.map((s, i) => { const r = res.stations[i]; return `<tr><td class="nm">${esc(s.name)}</td><td>${s.modules.reduce((a, m) => a + (m.count || 0), 0)}</td>
@@ -434,7 +444,7 @@ const UI = (() => {
       case 'newCx': { const n = Planner.newComplex('Комплекс ' + (S.complexes.length + 1)); S.complexes.push(n); S.cur = n.id; S.view = 'station'; changed(); break; }
       case 'delCx': if (c && confirm(`Удалить комплекс «${c.name}»?`)) { S.complexes = S.complexes.filter(x => x !== c); S.cur = S.complexes[0] ? S.complexes[0].id : null; changed(); } break;
       case 'dupCx': if (c) { const n = JSON.parse(JSON.stringify(c)); n.id = Planner.uid(); n.name += ' (копия)'; n.stations.forEach(s => (s.id = Planner.uid())); S.complexes.push(n); S.cur = n.id; changed(); } break;
-      case 'exportCx': if (c) IO.download(`${c.name}.x4builder.json`, JSON.stringify({ format: 'x4builderweb', version: 1, complexes: [c] }, null, 1)); break;
+      case 'exportCx': if (c) IO.download(`${(String(c.name || 'Комплекс').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'Комплекс')}.x4builder.json`, JSON.stringify({ format: 'x4builderweb', version: 1, complexes: [c] }, null, 1)); break;
       case 'exportAll': IO.download('x4builder-complexes.json', JSON.stringify({ format: 'x4builderweb', version: 1, complexes: S.complexes }, null, 1)); break;
       case 'importCx': importCx(); break;
       case 'importPlans': importPlans(); break;
@@ -498,7 +508,7 @@ const UI = (() => {
     if (t.id === 'hull' && st) { st.hull = Math.min(100, Math.max(0, parseFloat(t.value) || 0)); changed(); return; }
     if (t.id === 'period') { S.settings.period = +t.value; changed(); return; }
     if (t.id === 'priceMode') { S.settings.price = t.value; changed(); return; }
-    if (t.id === 'lang') { S.settings.lang = t.value; save(); Game.loadTexts(t.value, status).then(render); return; }
+    if (t.id === 'lang') { S.settings.lang = t.value; save(); Terraform.reset(); Game.loadTexts(t.value, () => {}).then(render).catch(err => toast('Ошибка загрузки языка: ' + err.message)); return; }
   }
 
   async function importCx() {
@@ -542,12 +552,14 @@ const UI = (() => {
 
   async function applyExtensions() {
     const ids = [...$('#extDlg').querySelectorAll('input:checked')].map(i => i.value);
-    S.settings.extensions = ids; save();
+    S.settings.extensions = ids;
+    S.settings.extensionsKnown = CatFS.extensions.map(e => e.id);
+    save();
     $('#extDlg').close();
     $('#app').hidden = true; $('#start').hidden = false;
     $('#start').classList.add('busy');
     try {
-      await CatFS.mount(new Set(ids), status);
+      await CatFS.mount(new Set(ids), status, new Set(S.settings.extensionsKnown));
       await Game.loadAll(S.settings.lang, status);
       for (const p of Object.values(PAGES)) if (p.reset) p.reset();
       S.gamePlans = await IO.gamePlans().catch(() => []);
@@ -572,7 +584,7 @@ const UI = (() => {
     if (!pick) {
       const own = await IO.readOwnPlan(st);
       if (own.text != null) text = own.text;
-      else { toast(`Не удалось прочитать «${own.name}» из папки планов: ${own.error}. Откройте чертёж кнопкой «Чертёж для достройки (XML)» или сохраните план — сохранённый план станет основой.`); renderMain(); return; }
+      else { toast(`Не удалось прочитать «${own.name}» из папки планов: ${own.error}. Откройте чертёж кнопкой «Чертёж для достройки (XML)» или сохраните план — сохранённый план станет основой.`); if (S.page === 'stations' && S.view === 'station' && station() === st) renderMain(); return; }
     }
     if (text == null) {
       const f = await IO.pickFile('.xml,application/xml,text/xml');
@@ -588,31 +600,41 @@ const UI = (() => {
         const have = st.modules.filter(x => x.macro === m.macro && x.enabled).reduce((t, x) => t + x.count, 0);
         if (have < m.count) Planner.addModule(st, m.macro, m.count - have);
       }
-      save(); renderMain(); if (preview) showLayout(st); else toast(`Чертёж «${p.name}» взят основой: ${p.base.length} записей останутся на месте.`);
+      save();
+      if (S.page === 'stations' && S.view === 'station' && station() === st) renderMain();
+      if (preview) showLayout(st); else toast(`Чертёж «${p.name}» взят основой: ${p.base.length} записей останутся на месте.`);
     } catch (e) { alert('Не удалось прочитать план: ' + e.message); }
   }
   function savePlanUI(st, change) {
     toast('Расстановка модулей…');
     IO.savePlan(st, change, t => toast(t)).then(r => {
       if (!r) return;
-      save(); renderMain(); // the saved plan is the station's base now (io.savePlan)
+      save();
+      if (S.page === 'stations' && S.view === 'station' && station() === st) renderMain(); // the saved plan is the station's base now (io.savePlan)
       const L = r.L, extra = L ? ` Соединено модулей: ${L.entries.length - L.connectors}${L.connectors ? `, добавлено соединителей: ${L.connectors}` : ''}${L.unplaced.length ? `, не встали: ${L.unplaced.length}` : ''}.` : '';
       toast((r.where === 'folder' ? `План «${r.name}» сохранён в папку «${r.folder}».` : `План «${r.name}» скачан: положите его в папку профиля игры constructionplan.`) + extra + ' В игре: редактор станции → загрузить план.');
-    });
+    }).catch(e => toast('Ошибка сохранения плана: ' + e.message));
   }
   // the layout preview: boxes from above (x, z) and from the side (x, y); docks and connectors in their colours
+  let layoutSeq = 0;
   async function showLayout(st) {
+    const seq = ++layoutSeq;
     const d = $('#layDlg');
     $('#layBody').innerHTML = '<p class="hint">Расстановка…</p>';
-    d.showModal();
+    $('#laySave').disabled = true;
+    $('#laySave').onclick = () => { d.close(); savePlanUI(st, false); };
+    if (!d.open) d.showModal();
     await StationLoadout.prepare(st);
-    const L = await Layout.make(st, t => { $('#layBody').innerHTML = `<p class="hint">${esc(t)}</p>`; });
+    if (seq !== layoutSeq || !d.open) return;
+    const L = await Layout.make(st, t => { if (seq === layoutSeq) $('#layBody').innerHTML = `<p class="hint">${esc(t)}</p>`; });
+    if (seq !== layoutSeq || !d.open) return;
+    $('#laySave').disabled = false;
     const view = (ax, ay, title) => {
       const xs = L.entries.flatMap(e => [e.box.lo[ax], e.box.hi[ax]]), ys = L.entries.flatMap(e => [e.box.lo[ay], e.box.hi[ay]]);
       const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), pad = 200;
       const rects = L.entries.map(e => {
         const m = Game.D.modules.get(e.macro), cls = e.connector ? 'c' : m && (m.class === 'dockarea' || m.class === 'pier') ? 'd' : m && m.class === 'habitation' ? 'h' : m && m.class === 'storage' ? 's' : 'p';
-        const y = ay === 2 ? -e.box.hi[ay] : -e.box.hi[ay];
+        const y = -e.box.hi[ay];
         return `<rect class="${cls}" x="${e.box.lo[ax]}" y="${y}" width="${e.box.hi[ax] - e.box.lo[ax]}" height="${e.box.hi[ay] - e.box.lo[ay]}"><title>${esc(Game.moduleName(e.macro))}</title></rect>`;
       }).join('');
       return `<figure><figcaption>${title}</figcaption><svg class="lay" viewBox="${x0 - pad} ${-y1 - pad} ${x1 - x0 + 2 * pad} ${y1 - y0 + 2 * pad}">${rects}</svg></figure>`;
@@ -722,8 +744,8 @@ const UI = (() => {
     $('#expClose').onclick = () => $('#expDlg').close();
     $('#expDlg').addEventListener('change', e => {
       $('#expApply').disabled = true;
-      // another race of the residents: their food is another list of wares
-      if (e.target.id === 'exHabRace' && EX) { readExpand(); EX.opt = Expand.options(EX.st, EX.opt); renderExpand(); }
+      // another race of the residents or production method: prerequisites and transports may change
+      if ((e.target.id === 'exHabRace' || e.target.matches('[data-exm]')) && EX) { readExpand(); EX.opt = Expand.options(EX.st, EX.opt); renderExpand(); }
     });
     $('#pickBtn').onclick = pickFolder;
     $('#altPickBtn').onclick = e => { e.preventDefault(); $('#dirInput').click(); };

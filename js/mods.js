@@ -11,7 +11,7 @@ const Mods = (() => {
   const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const fmt = (v, d = 0) => (v == null || isNaN(v) ? '' : Number(v).toLocaleString('ru-RU', { minimumFractionDigits: d, maximumFractionDigits: d }));
   const F = { q: '', group: '', sel: null };
-  let mods = null; // [{id(ware), group, effect, quality, min, max, bonus: {chance, max, effects: [{effect, min, max}]}, ext}]
+  let mods = null, loading = null; // [{id(ware), group, effect, quality, min, max, bonus: {chance, max, effects: [{effect, min, max}]}, ext}]
 
   const effectDef = (group, id) => {
     const g = MODS_DEFAULTS.find(x => x.id === group);
@@ -21,35 +21,45 @@ const Mods = (() => {
 
   async function load() {
     if (mods) return;
-    mods = [];
-    const doc = await XmlDiff.loadPatched('libraries/equipmentmods.xml');
-    if (!doc) return;
-    const num = v => (v == null ? null : Number(v));
-    for (const g of doc.documentElement.children) {
-      const group = g.tagName;
-      for (const m of g.children) {
-        const ware = m.getAttribute('ware');
-        if (!ware) continue;
-        const mod = { id: ware, group, effect: m.tagName, quality: num(m.getAttribute('quality')) || 1, min: num(m.getAttribute('min')), max: num(m.getAttribute('max')), bonus: null, ext: m.getAttribute('_ext') };
-        const b = [...m.children].find(c => c.tagName === 'bonus');
-        if (b) mod.bonus = { chance: num(b.getAttribute('chance')) || 0, max: num(b.getAttribute('max')) || 0, effects: [...b.children].map(e => ({ effect: e.tagName, min: num(e.getAttribute('min')), max: num(e.getAttribute('max')), weight: num(e.getAttribute('weight')) })) };
-        mods.push(mod);
-      }
-    }
+    if (loading) return loading;
+    loading = (async () => {
+      try {
+        const list = [];
+        const doc = await XmlDiff.loadPatched('libraries/equipmentmods.xml');
+        if (doc) {
+          const num = v => (v == null ? null : Number(v));
+          for (const g of doc.documentElement.children) {
+            const group = g.tagName;
+            for (const m of g.children) {
+              const ware = m.getAttribute('ware');
+              if (!ware) continue;
+              const mod = { id: ware, group, effect: m.tagName, quality: num(m.getAttribute('quality')) || 1, min: num(m.getAttribute('min')), max: num(m.getAttribute('max')), bonus: null, ext: m.getAttribute('_ext') };
+              const b = [...m.children].find(c => c.tagName === 'bonus');
+              if (b) mod.bonus = { chance: num(b.getAttribute('chance')) || 0, max: num(b.getAttribute('max')) || 0, effects: [...b.children].map(e => ({ effect: e.tagName, min: num(e.getAttribute('min')), max: num(e.getAttribute('max')), weight: num(e.getAttribute('weight')) })) };
+              list.push(mod);
+            }
+          }
+        }
+        mods = list;
+      } finally { loading = null; }
+    })();
+    return loading;
   }
 
   // a factor as a change: +5..+20 % (or a count for absolute effects); good / bad by the effect's direction
   function range(group, effect, min, max) {
     const d = effectDef(group, effect);
-    if (d.absolute) return { text: `${min > 0 ? '+' : ''}${fmt(min)}…${max > 0 ? '+' : ''}${fmt(max)}`, good: max > 0 };
+    const lo = min == null ? max : min, hi = max == null ? min : max;
+    if (d.absolute) {
+      const av = v => (v == null ? '?' : `${v > 0 ? '+' : ''}${fmt(v)}`);
+      return { text: lo === hi ? av(lo) : `${av(lo)}…${av(hi)}`, good: (hi || 0) > 0 };
+    }
     // noncalc (radar cloak, region damage, hidden cargo): the value itself is the share, as GetEquipmentModEffectParams
     if (d.noncalc) {
       const pv = v => (v == null ? '?' : `${v >= 0 ? '+' : ''}${fmt(v * 100, 1)}%`);
-      const lo = min == null ? max : min, hi = max == null ? min : max;
       return { text: lo === hi ? pv(lo) : `${pv(lo)} … ${pv(hi)}`, good: !d.negative };
     }
     const pc = v => (v == null ? '?' : `${v >= 1 ? '+' : ''}${fmt((v - 1) * 100, 1)}%`);
-    const lo = min == null ? max : min, hi = max == null ? min : max;
     const better = d.negative ? hi < 1 : lo > 1;
     return { text: lo === hi ? pc(lo) : `${pc(lo)} … ${pc(hi)}`, good: better };
   }
@@ -88,25 +98,28 @@ const Mods = (() => {
       if (!q) return true;
       const w = Game.D.wares.get(m.id);
       const n = (w ? Game.text(w.name) : m.id) + ' ' + effectName(m.group, m.effect);
-      return n.toLowerCase().includes(q) || m.id.includes(q);
+      return n.toLowerCase().includes(q) || m.id.toLowerCase().includes(q);
     };
     const shown = mods.filter(visible);
     if (!F.sel || !mods.some(m => m.id === F.sel)) F.sel = shown[0] ? shown[0].id : null;
     let tree = '';
-    for (const g of groups) {
-      const inG = shown.filter(m => m.group === g.id);
-      if (!inG.length) continue;
-      tree += `<tr class="grp"><td colspan="3">${esc(Game.text(g.name) || g.id)} <small>${inG.length}</small></td></tr>`;
-      const effects = g.effects.slice().sort((a, b) => String(a.index).localeCompare(String(b.index))).map(e => e.id);
+    const renderGroup = (gid, gname, geffects) => {
+      const inG = shown.filter(m => m.group === gid);
+      if (!inG.length) return;
+      tree += `<tr class="grp"><td colspan="3">${esc(gname)} <small>${inG.length}</small></td></tr>`;
+      const effects = geffects.slice();
       for (const extra of new Set(inG.map(m => m.effect))) if (!effects.includes(extra)) effects.push(extra);
       for (const eid of effects) {
         const list = inG.filter(m => m.effect === eid).sort((a, b) => a.quality - b.quality || a.id.localeCompare(b.id));
         if (!list.length) continue;
-        tree += `<tr class="sub"><td colspan="3">${esc(effectName(g.id, eid))}</td></tr>`;
+        tree += `<tr class="sub"><td colspan="3">${esc(effectName(gid, eid))}</td></tr>`;
         tree += list.map(m => { const w = Game.D.wares.get(m.id); const r = range(m.group, m.effect, m.min, m.max);
           return `<tr data-mod="${esc(m.id)}" class="${m.id === F.sel ? 'on' : ''}"><td class="nm">${esc(w ? Game.text(w.name) : m.id)}${m.bonus ? ' <small>+бонусы</small>' : ''}</td><td>${esc(QUALITY[m.quality] || m.quality)}</td><td class="${r.good ? 'pos' : 'neg'}">${esc(r.text)}</td></tr>`; }).join('');
       }
-    }
+    };
+    const knownGroups = new Set(groups.map(g => g.id));
+    for (const g of groups) renderGroup(g.id, Game.text(g.name) || g.id, g.effects.slice().sort((a, b) => String(a.index).localeCompare(String(b.index))).map(e => e.id));
+    for (const gid of new Set(shown.map(m => m.group))) if (!knownGroups.has(gid)) renderGroup(gid, gid, []);
     const sel = mods.find(m => m.id === F.sel);
     root.innerHTML = `<div class="wares">
       <section class="wlist">
@@ -133,7 +146,7 @@ const Mods = (() => {
     if (t.id === 'mq') { F.q = t.value; const pos = t.selectionStart; render(root).then(() => { const n = root.querySelector('#mq'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }); return true; }
     return false;
   }
-  function reset() { mods = null; }
+  function reset() { mods = null; loading = null; }
 
   return { render, click, change, input, reset, F };
 })();

@@ -210,10 +210,12 @@ const Expand = (() => {
       if (m && opt.alloy.n > have) add(m, opt.alloy.n - have);
     }
     let iter = 0, changed = true;
+    const refreshLoadout = () => { if (typeof StationLoadout !== 'undefined' && StationLoadout.ready()) StationLoadout.compute(work); };
     while (changed && iter++ < 60) {
       changed = false;
       if (iter === 1 && opt.workforce) changed = doHabs() || changed;
       if (opt.resourcesOn) {
+        refreshLoadout();
         const r = Planner.calcStation(work, 3600);
         for (const res of opt.resources.values()) {
           if (!res.enabled) continue;
@@ -235,7 +237,7 @@ const Expand = (() => {
           const sumTime = prods.reduce((s, x) => s + x.p.time, 0) || p.time;
           const own = prods.find(x => x.q.ware === res.id);
           const amount = own && own.q.amount != null ? own.q.amount : p.amount;
-          const out = Math.trunc(Math.trunc(amount * eff) * (3600 / sumTime) * (m.queueAmount || 1));
+          const out = Math.trunc(amount * eff) * (3600 / sumTime) * (m.queueAmount || 1);
           if (out <= 0) {
             const note = `«${Game.wareName(res.id)}»: ${Game.moduleName(m.macro)} ничего не производит (солнце ${fmtPct(sun)}%, корпус ${fmtPct(hull)}%), модули не добавлены`;
             if (!notes.includes(note)) notes.push(note);
@@ -328,6 +330,7 @@ const Expand = (() => {
       fill('pier', () => { const d = pads(); return (d.dock_l || 0) + (d.dock_xl || 0); }, needL, 'Не найден причал для L/XL');
       notes.push(`Причалы: мест L/XL нужно ${needL} (кораблей L станции ${needL - PIER_RESERVE > 0 ? needL - PIER_RESERVE : 0} + запас ${PIER_RESERVE})`);
     }
+    refreshLoadout();
     return { added, station: work, notes };
   }
 

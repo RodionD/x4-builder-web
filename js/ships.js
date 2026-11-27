@@ -36,9 +36,7 @@ const Ships = (() => {
 
   async function readXml(path) {
     if (!path) return null;
-    const text = await CatFS.read(path.replace(/\\/g, '/') + '.xml');
-    if (!text) return null;
-    try { return XmlDiff.parse(text, path); } catch (e) { return null; }
+    try { return await XmlDiff.loadPatched(path.replace(/\\/g, '/') + '.xml'); } catch (e) { return null; }
   }
   const macroPath = name => Game.D.macros.get(String(name || '').toLowerCase());
   const compPath = name => Game.D.components.get(String(name || '').toLowerCase());
@@ -80,7 +78,7 @@ const Ships = (() => {
       const conns = comp ? await compConnections(comp) : [];
       const own = conns.find(c => c.tags.includes(kind));
       if (!own) return;
-      const ware = Game.D.wares.get(Game.D.wareByComponent.get(A(mac, 'name')));
+      const ware = Game.D.wares.get(Game.D.wareByComponent.get((A(mac, 'name') || '').toLowerCase()));
       out.push({ macro: A(mac, 'name'), name: A(ident, 'name'), race: A(ident, 'makerrace'), mk: N(A(ident, 'mk')), tags: own.tags, size: SIZES.find(z => own.tags.includes(z)), ware, ...read(props) });
     }));
     return out;
@@ -109,22 +107,23 @@ const Ships = (() => {
     const doc = await readXml(path);
     const mac = doc && doc.getElementsByTagName('macro')[0];
     if (!mac || !/^ship_(s|m|l|xl)$/.test(A(mac, 'class') || '')) return null;
-    let props = childEl(mac, 'properties');
-    // alias: the properties of the macro it is a variant of
+    const ownProps = childEl(mac, 'properties');
+    let props = ownProps;
+    // alias: the properties of the macro it is a variant of (keep the variant's own identification if present)
     const alias = A(mac, 'alias');
     if (alias && (!props || !childEl(props, 'hull'))) {
       const ad = await readXml(macroPath(alias));
       const am = ad && ad.getElementsByTagName('macro')[0];
       if (am) props = childEl(am, 'properties') || props;
     }
-    const ident = childEl(props, 'identification');
+    const ident = childEl(ownProps, 'identification') || childEl(props, 'identification');
     const ship = {
       macro: A(mac, 'name'), class: A(mac, 'class'), name: A(ident, 'name'), basename: A(ident, 'basename'), variation: A(ident, 'shortvariation') || A(ident, 'variation'),
       race: A(ident, 'makerrace'), description: A(ident, 'description'), type: A(childEl(props, 'ship'), 'type'), purpose: A(childEl(props, 'purpose'), 'primary'),
       hull: N(A(childEl(props, 'hull'), 'max')), crew: N(A(childEl(props, 'people'), 'capacity')),
       missiles: N(A(childEl(props, 'storage'), 'missile')), units: N(A(childEl(props, 'storage'), 'unit')), deployables: N(A(childEl(props, 'storage'), 'deployable')),
       countermeasures: N(A(childEl(props, 'storage'), 'countermeasure')),
-      mass: N(A(childEl(props, 'physics'), 'mass')), drag: {}, slots: {}, cargo: {}, pads: {}, hangar: {}, ext: (path.match(/^extensions\\([^\\]+)/i) || [])[1] || null,
+      mass: N(A(childEl(props, 'physics'), 'mass')), drag: {}, slots: {}, cargo: {}, pads: {}, hangar: {}, ext: (path.match(/^extensions[\\/]([^\\/]+)/i) || [])[1] || null,
     };
     const drag = childEl(childEl(props, 'physics'), 'drag');
     if (drag) for (const a of drag.attributes) ship.drag[a.name] = N(a.value);
@@ -146,7 +145,7 @@ const Ships = (() => {
       if (/^storage_/i.test(r)) {
         const sd = await readXml(macroPath(r));
         const cg = sd && sd.getElementsByTagName('cargo')[0];
-        if (cg) for (const t of (A(cg, 'tags') || '').split(/\s+/)) ship.cargo[t] = (ship.cargo[t] || 0) + N(A(cg, 'max'));
+        if (cg) for (const t of (A(cg, 'tags') || '').split(/\s+/).filter(Boolean)) ship.cargo[t] = (ship.cargo[t] || 0) + N(A(cg, 'max'));
       } else if (/dock|shipstorage/i.test(r)) {
         for (const b of (await dockInfo(r)) || []) for (const z of b.sizes) {
           if (!SZ[z]) continue;
@@ -155,7 +154,7 @@ const Ships = (() => {
         }
       }
     }
-    const wid = Game.D.wareByComponent.get(ship.macro);
+    const wid = Game.D.wareByComponent.get((ship.macro || '').toLowerCase());
     ship.ware = wid ? Game.D.wares.get(wid) : null;
     return ship;
   }
@@ -239,7 +238,7 @@ const Ships = (() => {
       if (F.cls && s.class !== F.cls) continue;
       if (F.type && s.type !== F.type) continue;
       if (F.race && s.race !== F.race) continue;
-      if (q && !shipName(s).toLowerCase().includes(q) && !s.macro.includes(q)) continue;
+      if (q && !shipName(s).toLowerCase().includes(q) && !s.macro.toLowerCase().includes(q)) continue;
       out.push(s);
     }
     const col = COLS.find(c => c[0] === F.sort) || COLS[0];

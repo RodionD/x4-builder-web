@@ -59,8 +59,9 @@ const IO = (() => {
         const pos = e.getElementsByTagName('position')[0], rot = e.getElementsByTagName('rotation')[0], pr = e.getElementsByTagName('predecessor')[0];
         const f = (el, a) => el ? Number(el.getAttribute(a)) || 0 : 0;
         if (!e.getAttribute('macro')) continue;
-        base.push({ idx: Number(e.getAttribute('index')), macro: e.getAttribute('macro'), conn: e.getAttribute('connection') || null,
-          pred: pr ? Number(pr.getAttribute('index')) : null, predConn: pr ? pr.getAttribute('connection') : null,
+        const conn = e.getAttribute('connection'), predConn = pr ? pr.getAttribute('connection') : null;
+        base.push({ idx: Number(e.getAttribute('index')), macro: e.getAttribute('macro'), conn: conn ? conn.toLowerCase() : null,
+          pred: pr ? Number(pr.getAttribute('index')) : null, predConn: predConn ? predConn.toLowerCase() : null,
           p: [f(pos, 'x'), f(pos, 'y'), f(pos, 'z')], rot: { yaw: f(rot, 'yaw'), pitch: f(rot, 'pitch'), roll: f(rot, 'roll') },
           raw: ser.serializeToString(e) });
       }
@@ -132,7 +133,7 @@ const IO = (() => {
       const r = indexedDB.open(PLANDB.name, 1);
       r.onupgradeneeded = () => r.result.createObjectStore(PLANDB.store);
       r.onerror = () => res(null);
-      r.onsuccess = () => { const tx = r.result.transaction(PLANDB.store, mode); const q = fn(tx.objectStore(PLANDB.store)); tx.oncomplete = () => res(q && q.result !== undefined ? q.result : null); tx.onerror = () => res(null); };
+      r.onsuccess = () => { const db = r.result; const tx = db.transaction(PLANDB.store, mode); const q = fn(tx.objectStore(PLANDB.store)); tx.oncomplete = () => { db.close(); res(q && q.result !== undefined ? q.result : null); }; tx.onerror = () => { db.close(); res(null); }; };
     });
   }
   async function planFolder(change) {
@@ -152,18 +153,22 @@ const IO = (() => {
     if (typeof StationLoadout !== 'undefined') await StationLoadout.prepare(st);
     const L = typeof Layout !== 'undefined' && st.layoutOn !== false ? await Layout.make(st, progress) : null;
     const name = planFileName(st), text = planXml(st, L);
-    // the plan saved for the game becomes the station's base: the next extend layout starts from it (the player,
-    // 2026-11-19: the open station is the plan - no file to pick)
-    if (L && L.entries.length) { try { const p = parsePlans(text)[0]; if (p && p.base.length) { st.base = { name: p.name, entries: p.base }; if (!st.layoutMode) st.layoutMode = 'extend'; } } catch (e) { /* keep the old base */ } }
+    const setBase = () => {
+      // the plan saved for the game becomes the station's base: the next extend layout starts from it (the player,
+      // 2026-11-19: the open station is the plan - no file to pick)
+      if (L && L.entries.length) { try { const p = parsePlans(text)[0]; if (p && p.base.length) { st.base = { name: p.name, entries: p.base }; if (!st.layoutMode) st.layoutMode = 'extend'; } } catch (e) { /* keep the old base */ } }
+    };
     try {
       const dir = await planFolder(change);
       if (dir) {
         const f = await dir.getFileHandle(name, { create: true });
         const w = await f.createWritable(); await w.write(text); await w.close();
+        setBase();
         return { where: 'folder', name, folder: dir.name, L };
       }
     } catch (e) { if (e.name === 'AbortError') return null; }
     download(name, text, 'application/xml');
+    setBase();
     return { where: 'download', name, L };
   }
 
@@ -182,7 +187,10 @@ const IO = (() => {
     // folder access for pages)
     try {
       const r = await fetch('../plans/' + encodeURIComponent(name), { cache: 'no-store' });
-      if (r.ok) return { name, text: await r.text() };
+      if (r.ok) {
+        const text = await r.text();
+        if (/<plans?\b/i.test(text) && !/<!doctype\s+html|<html/i.test(text)) return { name, text };
+      }
     } catch (e) { /* not under the panel */ }
     try {
       if (!window.showDirectoryPicker) return { error: 'браузер не даёт доступа к папкам', name };

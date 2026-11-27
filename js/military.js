@@ -30,9 +30,7 @@ const Military = (() => {
 
   async function readXml(path) {
     if (!path) return null;
-    const text = await CatFS.read(path.replace(/\\/g, '/') + '.xml');
-    if (!text) return null;
-    try { return XmlDiff.parse(text, path); } catch (e) { return null; }
+    try { return await XmlDiff.loadPatched(path.replace(/\\/g, '/') + '.xml'); } catch (e) { return null; }
   }
   const macroEl = async name => { const d = await readXml(Game.D.macros.get(String(name || '').toLowerCase())); return d ? d.getElementsByTagName('macro')[0] : null; };
   // properties as a flat map "tag.attr" -> value (as the original's xml_node paths)
@@ -57,7 +55,7 @@ const Military = (() => {
     let n7 = 1;
     if (n18 <= 0) n7 = n19 <= 0 ? n4 : n19 / ((n19 - 1) / n4 + n20);
     else if (n19 > 0) n7 = n19 / ((n19 - 1) / n4 + n20);
-    if (!n7) return null;
+    if (!n7 || !isFinite(n7)) return null;
     let n5 = 1; if (n18 > 0 && n30 > 0) n5 = n17 / (n30 + n31);
     if (!n5) return null;
     let n6 = 1; if (n18 > 0 && n19 > 0) n6 = n17;
@@ -115,7 +113,7 @@ const Military = (() => {
           const props = childEl(mac, 'properties');
           const ident = childEl(props, 'identification');
           const w = flat(props);
-          const ware = Game.D.wares.get(Game.D.wareByComponent.get(A(mac, 'name')));
+          const ware = Game.D.wares.get(Game.D.wareByComponent.get((A(mac, 'name') || '').toLowerCase()));
           const base = { macro: A(mac, 'name'), name: A(ident, 'name'), race: A(ident, 'makerrace'), mk: V(A(ident, 'mk')), description: A(ident, 'description'), ware, hullMax: V(w['hull.max']) || null, rotation: V(w['rotationspeed.max']) || null };
           // the size from the component's own connection tags
           const comp = A(childEl(mac, 'component'), 'ref');
@@ -194,7 +192,7 @@ const Military = (() => {
     if (!M) { root.innerHTML = '<p class="hint" id="milLoad">Загрузка вооружения…</p>'; await load(t => { const e = root.querySelector('#milLoad'); if (e) e.textContent = t; }); if (!UI.active('military')) return; }
     const q = F.q.toLowerCase();
     const races = [...new Set(M.map(x => x.race).filter(Boolean))].sort((a, b) => Game.raceName(a).localeCompare(Game.raceName(b)));
-    const list = M.filter(x => (!F.kind || x.kind === F.kind) && (!F.size || x.size === F.size) && (!F.race || x.race === F.race) && (!q || (Game.text(x.name) || '').toLowerCase().includes(q) || x.macro.includes(q)));
+    const list = M.filter(x => (!F.kind || x.kind === F.kind) && (!F.size || x.size === F.size) && (!F.race || x.race === F.race) && (!q || (Game.text(x.name) || '').toLowerCase().includes(q) || x.macro.toLowerCase().includes(q)));
     const col = COLS.find(c => c[0] === F.sort) || COLS[0];
     list.sort((a, b) => { const p = col[2](a), r = col[2](b); const d = col[3] ? (p || 0) - (r || 0) : String(p).localeCompare(String(r)); return F.desc ? -d : d; });
     if (!F.sel || !M.some(x => x.macro === F.sel)) F.sel = list[0] ? list[0].macro : null;

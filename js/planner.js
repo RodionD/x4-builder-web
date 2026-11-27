@@ -34,6 +34,18 @@ const Planner = (() => {
   const strMap = v => { const o = {}; if (isObj(v)) for (const [k, x] of Object.entries(v)) if (x != null && !isObj(x)) o[k] = String(x); return o; };
   const idOr = v => (typeof v === 'string' && /^[\w-]{1,40}$/.test(v) ? v : uid()); // ids go into data-* attributes as they are
   const prices = v => ({ min: numOr(v && v.min, 0), avg: numOr(v && v.avg, 0), max: numOr(v && v.max, 0) });
+  const normBaseEntry = e => {
+    if (!isObj(e) || e.macro == null || isObj(e.macro)) return null;
+    const p = Array.isArray(e.p) ? [numOr(e.p[0], 0), numOr(e.p[1], 0), numOr(e.p[2], 0)] : [0, 0, 0];
+    const r = isObj(e.rot) ? e.rot : {};
+    return {
+      idx: numOr(e.idx, 0), macro: String(e.macro), conn: e.conn != null ? strOr(e.conn, null) : null,
+      pred: e.pred != null && isFinite(Number(e.pred)) ? Number(e.pred) : null,
+      predConn: e.predConn != null ? strOr(e.predConn, null) : null,
+      p, rot: { yaw: numOr(r.yaw, 0), pitch: numOr(r.pitch, 0), roll: numOr(r.roll, 0) },
+      raw: strOr(e.raw, ''),
+    };
+  };
   function normStation(s, i) {
     if (!isObj(s)) return null;
     const st = {
@@ -44,6 +56,11 @@ const Planner = (() => {
       sunlight: numOr(s.sunlight, 100, 0), hull: numOr(s.hull, 100, 0, 100),
     };
     if (s.layoutOn === false) st.layoutOn = false;
+    if (s.layoutMode === 'extend' || s.layoutMode === 'scratch') st.layoutMode = s.layoutMode;
+    if (isObj(s.base) && Array.isArray(s.base.entries)) {
+      const entries = s.base.entries.map(normBaseEntry).filter(Boolean);
+      if (entries.length) st.base = { name: strOr(s.base.name, st.name), entries };
+    }
     if (s.connRace != null) st.connRace = strOr(s.connRace, null);
     if (s.sector != null) st.sector = strOr(s.sector, '');
     if (isObj(s.loadout)) st.loadout = { mode: ['none', 'mk1', 'mk2', 'best'].includes(s.loadout.mode) ? s.loadout.mode : 'none', race: strOr(s.loadout.race, 'argon'), ...(s.loadout.missile != null ? { missile: s.loadout.missile !== false } : {}), ...(s.loadout.misRate != null ? { misRate: numOr(s.loadout.misRate, 0, 0) } : {}), ...(s.loadout.droneRate != null ? { droneRate: numOr(s.loadout.droneRate, 0, 0) } : {}) };
@@ -80,7 +97,7 @@ const Planner = (() => {
   }
 
   function addModule(st, macro, count = 1) {
-    const ex = st.modules.find(m => m.macro === macro);
+    const ex = st.modules.find(m => m.macro === macro && m.enabled);
     if (ex) ex.count += count;
     else st.modules.push({ macro, count, enabled: true });
   }
@@ -148,7 +165,7 @@ const Planner = (() => {
         r.capacity += m.habCapacity * n;
       }
       if (m.cargoMax && m.cargoTags) {
-        for (const t of m.cargoTags.split(/\s+/)) r.storage.set(t, (r.storage.get(t) || 0) + m.cargoMax * n);
+        for (const t of m.cargoTags.split(/\s+/).filter(Boolean)) r.storage.set(t, (r.storage.get(t) || 0) + m.cargoMax * n);
       }
     }
     r.races = [...raceCap].map(([race, capacity]) => ({ race, capacity }));

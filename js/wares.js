@@ -31,7 +31,7 @@ const Wares = (() => {
       if (F.group && w.group !== F.group) continue;
       if (F.transport && w.transport !== F.transport) continue;
       const name = Game.text(w.name) || w.id;
-      if (q && !name.toLowerCase().includes(q) && !w.id.includes(q)) continue;
+      if (q && !name.toLowerCase().includes(q) && !w.id.toLowerCase().includes(q)) continue;
       out.push({ w, name });
     }
     const by = {
@@ -146,7 +146,7 @@ const Wares = (() => {
     return false;
   }
   function input(t, root) {
-    if (t.id === 'wq') { F.q = t.value; const pos = t.selectionStart; render(root); const n = root.querySelector('#wq'); n.focus(); n.setSelectionRange(pos, pos); return true; }
+    if (t.id === 'wq') { F.q = t.value; const pos = t.selectionStart; render(root); const n = root.querySelector('#wq'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } return true; }
     return false;
   }
 

@@ -11,7 +11,7 @@ const Diplomacy = (() => {
   const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const fmt = (v, d = 0) => (v == null || isNaN(v) ? '' : Number(v).toLocaleString('ru-RU', { minimumFractionDigits: d, maximumFractionDigits: d }));
   const F = { q: '', kind: '', sel: null };
-  let X = null; // {actions: [], events: [], gifts: [], experience: [], rank: [], curve: []}
+  let X = null, loading = null; // {actions: [], events: [], gifts: [], experience: [], rank: [], curve: []}
 
   const kids = (el, tag) => (el ? [...el.children].filter(c => !tag || c.tagName === tag) : []);
   const childEl = (el, tag) => kids(el, tag)[0] || null;
@@ -22,17 +22,25 @@ const Diplomacy = (() => {
 
   async function load() {
     if (X) return;
-    X = { actions: [], events: [], gifts: [], experience: [], rank: [], curve: [] };
-    const doc = await XmlDiff.loadPatched('libraries/diplomacy.xml');
-    if (!doc) return;
-    const root = doc.documentElement;
-    X.actions = kids(childEl(root, 'actions'), 'action');
-    X.events = kids(childEl(root, 'events'), 'event');
-    X.gifts = kids(childEl(root, 'gifts'), 'gift');
-    X.giftDefaults = childEl(childEl(root, 'gifts'), 'defaults');
-    X.experience = kids(childEl(root, 'experience'), 'level');
-    X.rank = kids(childEl(root, 'rank'), 'level');
-    X.curve = kids(childEl(root, 'influencecostcurve'), 'influence');
+    if (loading) return loading;
+    loading = (async () => {
+      try {
+        const x = { actions: [], events: [], gifts: [], experience: [], rank: [], curve: [] };
+        const doc = await XmlDiff.loadPatched('libraries/diplomacy.xml');
+        if (doc) {
+          const root = doc.documentElement;
+          x.actions = kids(childEl(root, 'actions'), 'action');
+          x.events = kids(childEl(root, 'events'), 'event');
+          x.gifts = kids(childEl(root, 'gifts'), 'gift');
+          x.giftDefaults = childEl(childEl(root, 'gifts'), 'defaults');
+          x.experience = kids(childEl(root, 'experience'), 'level');
+          x.rank = kids(childEl(root, 'rank'), 'level');
+          x.curve = kids(childEl(root, 'influencecostcurve'), 'influence');
+        }
+        X = x;
+      } finally { loading = null; }
+    })();
+    return loading;
   }
 
   const expName = v => { let n = ''; for (const l of X.experience) if (Number(A(l, 'value')) <= Number(v)) n = T(A(l, 'name')); return n; };
@@ -154,7 +162,7 @@ const Diplomacy = (() => {
     if (t.id === 'dq') { F.q = t.value; const pos = t.selectionStart; render(root).then(() => { const n = root.querySelector('#dq'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }); return true; }
     return false;
   }
-  function reset() { X = null; }
+  function reset() { X = null; loading = null; }
 
   return { render, click, change, input, reset, F };
 })();

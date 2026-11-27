@@ -60,8 +60,7 @@ const Layout = (() => {
   const reset = () => geo.clear();
   async function readXml(path) {
     if (!path) return null;
-    const t = await CatFS.read(path.replace(/\\/g, '/') + '.xml');
-    try { return t ? XmlDiff.parse(t, path) : null; } catch (e) { return null; }
+    try { return await XmlDiff.loadPatched(path.replace(/\\/g, '/') + '.xml'); } catch (e) { return null; }
   }
   function geometry(macro) {
     if (!geo.has(macro)) geo.set(macro, (async () => {
@@ -69,8 +68,8 @@ const Layout = (() => {
       const mac = md && [...md.getElementsByTagName('macro')].find(m => (m.getAttribute('name') || '').toLowerCase() === macro.toLowerCase());
       const comp = mac && mac.getElementsByTagName('component')[0];
       const cd = comp && await readXml(Game.D.components.get((comp.getAttribute('ref') || '').toLowerCase()));
-      if (!cd) return null;
-      const root = cd.getElementsByTagName('component')[0];
+      const root = cd && cd.getElementsByTagName('component')[0];
+      if (!root) return null;
       const snaps = [];
       for (const c of root.getElementsByTagName('connection')) {
         if (!/\bsnap\b/.test(c.getAttribute('tags') || '')) continue;
@@ -187,7 +186,7 @@ const Layout = (() => {
     return out.sort((x, y) => y.len - x.len || (x.macro < y.macro ? -1 : 1));
   }
   function connectorInfo(macro) {
-    const w = Game.D.wares.get(Game.D.wareByComponent.get(macro));
+    const w = Game.D.wares.get(Game.D.wareByComponent.get((macro || '').toLowerCase()));
     return { name: w ? Game.text(w.name) || macro : macro, owners: w ? w.owners : [], price: w ? w.price : null };
   }
 
@@ -318,9 +317,9 @@ const Layout = (() => {
         // crosses met back to back at one origin - their boxes only touch (the overlap tolerance), the game's own plans
         // never put two modules within 200 m of each other's origin (Гиперион, 2026-11-21)
         if (placed.some(p => !p.conn && Math.hypot(p.T.p[0] - T.p[0], p.T.p[1] - T.p[1], p.T.p[2] - T.p[2]) < 50)) continue;
-        // the last resorts (loose, see make's loop): a dock's own box checked as well (the box with the approach is
-        // shrunk for the check by its own size, which may free the near side of the dock itself)
-        if (loose && dock && !check(worldBox(g.box, T))) continue;
+        // check the dock's own box too (the box stretched by the approach increases its smallest dimension and relaxes
+        // the overlap slack, which can hide an overlap on the dock itself)
+        if (dock && !check(worldBox(g.box, T))) continue;
         const sc = score([wb, ...extra], dock, T);
         if (!b || sc < b.score) b = { score: sc, si, T };
       }
@@ -392,8 +391,9 @@ const Layout = (() => {
     function chainFor(macro, g, dock) {
       const c0 = centre();
       const away = o => [o.P[0] - c0[0], o.P[1] - c0[1], o.P[2] - c0[2]];
-      const starts = open.map((o, oi) => ({ o, oi, D: dirOf(o.Q), d: Math.hypot(...away(o)) }))
-        .filter(x => dot(x.D, away(x.o)) > 0).sort((a, b) => b.d - a.d).slice(0, CHAIN_STARTS);
+      const mapped = open.map((o, oi) => ({ o, oi, D: dirOf(o.Q), d: Math.hypot(...away(o)) }));
+      let starts = mapped.filter(x => dot(x.D, away(x.o)) > 0).sort((a, b) => b.d - a.d).slice(0, CHAIN_STARTS);
+      if (!starts.length) starts = mapped.sort((a, b) => b.d - a.d).slice(0, CHAIN_STARTS);
       let bestC = null;
       for (const s0 of starts) {
         const chain = []; // {macro, g, T, ci (the snap on its predecessor), cj (the snap the next one is on), box}
@@ -514,17 +514,23 @@ const Layout = (() => {
     if (base) {
       // the base entries where the plan has them; a joint (predecessor) takes the snaps of both sides
       const byIdx = new Map();
+      base.forEach((e, idx) => { if (e.idx != null) byIdx.set(e.idx, idx); });
       for (const e of base) {
         const g = G.get(e.macro) || { snaps: [], box: { c: [0, 0, 0], h: [1, 1, 1] } };
         const T = { p: e.p.slice(), q: qnorm(compose(e.rot.yaw, e.rot.pitch * pitchSign, e.rot.roll)) };
         const pred = e.pred != null && byIdx.has(e.pred) ? byIdx.get(e.pred) : null;
         const isConn = /^struct_/.test(e.macro);
-        const si = e.conn ? g.snaps.findIndex(x => x.name === e.conn) : -1;
-        const link = pred != null ? { pred, predSnap: e.predConn, snap: si, snapName: e.conn, connector: isConn } : isConn ? { connector: true } : null;
+        const conn = e.conn ? e.conn.toLowerCase() : null;
+        const predConn = e.predConn ? e.predConn.toLowerCase() : null;
+        const si = conn ? g.snaps.findIndex(x => x.name === conn) : -1;
+        const link = pred != null ? { pred, predSnap: predConn, snap: si, snapName: conn, connector: isConn } : isConn ? { connector: true } : null;
         const pi = addPlaced(e.macro, T, g, link);
         placed[pi].raw = e.raw; placed[pi].baseIdx = e.idx;
-        byIdx.set(e.idx, pi);
-        if (pred != null && e.predConn) { const k = open.findIndex(o => o.pi === pred && o.name === e.predConn); if (k >= 0) open.splice(k, 1); }
+      }
+      for (const e of base) {
+        const pred = e.pred != null && byIdx.has(e.pred) ? byIdx.get(e.pred) : null;
+        const predConn = e.predConn ? e.predConn.toLowerCase() : null;
+        if (pred != null && predConn) { const k = open.findIndex(o => o.pi === pred && o.name === predConn); if (k >= 0) open.splice(k, 1); }
       }
       // snaps that meet a snap of another base module (joined in the game without a predecessor record) are taken too
       for (let i = open.length - 1; i >= 0; i--) {

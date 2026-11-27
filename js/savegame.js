@@ -17,13 +17,14 @@ const Savegame = (() => {
     if (!R) { try { localStorage.removeItem(KEY); } catch (e) { /* private mode */ } return; }
     const o = { info: R.info, file: R.file, fileDate: R.fileDate, readAt: R.readAt, time: R.time,
       sectors: [...R.sectors], ships: R.ships, stations: R.stations.map(x => ({ ...x, modules: [...x.modules] })) };
-    try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) { /* too big or private mode: only this session */ }
+    try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) { try { localStorage.removeItem(KEY); } catch (e2) { /* */ } }
   }
   (function restore() {
     try {
       const o = JSON.parse(localStorage.getItem(KEY) || 'null');
       if (!o) return;
       R = { ...o, sectors: new Map(o.sectors), stations: o.stations.map(x => ({ ...x, modules: new Map(x.modules) })) };
+      F.sel = new Set(R.stations.map(s => s.code));
     } catch (e) { R = null; }
   })();
   const when = ts => (ts ? new Date(ts).toLocaleString('ru-RU') : '');
@@ -57,15 +58,14 @@ const Savegame = (() => {
   async function read(file, onProgress) {
     const res = { info: {}, stations: [], ships: [], sectors: new Map(), size: file.size, time: Date.now() };
     let stream = file.stream();
-    if (/\.gz$/i.test(file.name) || true) {
-      // gzip magic 1f 8b: unpack; a plain .xml is read as it is
-      const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
-      if (head[0] === 0x1f && head[1] === 0x8b) stream = stream.pipeThrough(new DecompressionStream('gzip'));
-    }
+    // gzip magic 1f 8b: unpack; a plain .xml is read as it is
+    const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+    if (head[0] === 0x1f && head[1] === 0x8b) stream = stream.pipeThrough(new DecompressionStream('gzip'));
     const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
     const stack = []; // {cls, macro, ...}
-    let station = null, stationDepth = -1, inSeq = false, inInfo = true;
+    let station = null, stationDepth = -1, inSeq = false, inInfo = false;
     let rest = '', bytes = 0, lastReport = 0;
+    const isTag = (t, name) => t === name || (t.startsWith(name) && /\s|\/$/.test(t[name.length] || ''));
     const sectorOf = () => { for (let i = stack.length - 1; i >= 0; i--) if (stack[i].cls === 'sector') return stack[i].macro; return null; };
     for (;;) {
       const { value, done } = await reader.read();
@@ -91,29 +91,32 @@ const Savegame = (() => {
         }
         if (c0 === 63 || c0 === 33) continue; // <? and <!
         const self = tag.charCodeAt(tag.length - 1) === 47;
-        if (tag.startsWith('component ')) {
+        if (isTag(tag, 'component')) {
           const at = attrs(tag);
           const node = { cls: at.class, macro: at.macro };
           // sectors: owner (as the map of the original shows it), the player's knowledge
           if (at.class === 'sector' && at.macro) res.sectors.set(at.macro.toLowerCase(), { owner: at.owner, contested: at.contested === '1', known: at.known === '1' || /\bplayer\b/.test(at.knownto || ''), code: at.code });
           if (at.owner === 'player') {
             if (at.class === 'station' && !station) {
-              station = { code: at.code, name: at.name, macro: at.macro, sector: sectorOf(), modules: new Map(), state: at.state || '' };
-              stationDepth = stack.length + 1;
+              const st = { code: at.code, name: at.name, macro: at.macro, sector: sectorOf(), modules: new Map(), state: at.state || '' };
+              if (self) res.stations.push(st);
+              else { station = st; stationDepth = stack.length + 1; }
             } else if (/^ship_(xs|s|m|l|xl)$/.test(at.class || '')) {
               res.ships.push({ code: at.code, name: at.name, macro: at.macro, cls: at.class, sector: sectorOf(), docked: !!stack.find(x => x.cls === 'station' || /^ship_/.test(x.cls || '')) });
             }
           }
           if (!self) stack.push(node);
-        } else if (station && inSeq && tag.startsWith('entry ')) {
+        } else if (station && inSeq && isTag(tag, 'entry')) {
           const at = attrs(tag);
           if (at.macro) station.modules.set(at.macro, (station.modules.get(at.macro) || 0) + 1);
-        } else if (station && tag.startsWith('sequence') && stack.length === stationDepth) {
+        } else if (station && isTag(tag, 'sequence') && stack.length === stationDepth) {
           inSeq = !self;
+        } else if (isTag(tag, 'info') && !self) {
+          inInfo = true;
         } else if (inInfo) {
-          if (tag.startsWith('player ')) res.info.player = attrs(tag);
-          else if (tag.startsWith('game ')) res.info.game = attrs(tag);
-          else if (tag.startsWith('save ')) res.info.save = attrs(tag);
+          if (isTag(tag, 'player')) res.info.player = attrs(tag);
+          else if (isTag(tag, 'game')) res.info.game = attrs(tag);
+          else if (isTag(tag, 'save')) res.info.save = attrs(tag);
         }
       }
       rest = text.slice(i);

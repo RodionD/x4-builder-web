@@ -86,8 +86,7 @@ const Logistics = (() => {
   async function ensure(rerender) {
     if (Ships.api.loaded || loading) return;
     loading = 'Загрузка кораблей…';
-    await Ships.api.load(t => { loading = t; });
-    loading = '';
+    try { await Ships.api.load(t => { loading = t; }); } finally { loading = ''; }
     rerender();
   }
 

@@ -19,7 +19,6 @@ const CatFS = (() => {
 
   // the picked folder may be the game folder itself or its parent: find the prefix that holds 01.cat
   function setFiles(list) {
-    files = new Map();
     const raw = [];
     for (const f of list) {
       const rel = norm(f.webkitRelativePath || f.relPath || f.name);
@@ -34,9 +33,11 @@ const CatFS = (() => {
       }
     }
     if (prefix === null) return false;
+    const next = new Map();
     for (const [rel, f] of raw) {
-      if (rel.startsWith(prefix)) files.set(rel.slice(prefix.length), f);
+      if (rel.startsWith(prefix)) next.set(rel.slice(prefix.length), f);
     }
+    files = next;
     return true;
   }
 
@@ -102,8 +103,8 @@ const CatFS = (() => {
     return out;
   }
 
-  // mount everything; enabledIds: set of extension ids to use (null = as content.xml says)
-  async function mount(enabledIds, progress) {
+  // mount everything; enabledIds: set of extension ids to use (null = as content.xml says); knownIds: previously seen ids
+  async function mount(enabledIds, progress, knownIds) {
     entries = new Map();
     const cats = [...files.keys()].filter(r => /^\d\d\.cat$/.test(r)).sort();
     for (const c of cats) {
@@ -112,7 +113,7 @@ const CatFS = (() => {
     }
     extensions = await readExtensions();
     for (const e of extensions) {
-      e.active = enabledIds ? enabledIds.has(e.id) : e.enabled;
+      e.active = enabledIds ? (knownIds && !knownIds.has(e.id) ? e.enabled : enabledIds.has(e.id)) : e.enabled;
       if (!e.active) continue;
       const base = `extensions/${e.id}/`;
       const ecats = [...files.keys()].filter(r => r.startsWith(base) && /\/(ext|subst)_\d\d\.cat$/.test(r)).sort();

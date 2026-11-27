@@ -49,7 +49,7 @@ const Factions = (() => {
       if (!byKind.has(k)) byKind.set(k, []);
       byKind.get(k).push(w);
     }
-    const sellHtml = [...byKind].map(([k, list]) => `<details><summary>${esc(k)} — ${list.length}</summary><p class="small">${list.map(w => `<a href="#" data-goware="${esc(w.id)}">${esc(Game.text(w.name) || w.id)}</a>`).sort().join(', ')}</p></details>`).join('');
+    const sellHtml = [...byKind].map(([k, list]) => `<details><summary>${esc(k)} — ${list.length}</summary><p class="small">${list.slice().sort((a, b) => (Game.text(a.name) || a.id).localeCompare(Game.text(b.name) || b.id)).map(w => `<a href="#" data-goware="${esc(w.id)}">${esc(Game.text(w.name) || w.id)}</a>`).join(', ')}</p></details>`).join('');
     const illegal = [...Game.D.wares.values()].filter(w => w.illegal.includes(f.id));
     const police = el.getAttribute('policefaction');
     return `<h2>${esc(fname(f.id))}${f.short ? ` <small>${esc(Game.text(f.short))}</small>` : ''}</h2>
@@ -100,7 +100,7 @@ const Factions = (() => {
     return false;
   }
   function input(t, root) {
-    if (t.id === 'fcq') { F.q = t.value; const pos = t.selectionStart; render(root); const n = root.querySelector('#fcq'); n.focus(); n.setSelectionRange(pos, pos); return true; }
+    if (t.id === 'fcq') { F.q = t.value; const pos = t.selectionStart; render(root); const n = root.querySelector('#fcq'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } return true; }
     return false;
   }
 

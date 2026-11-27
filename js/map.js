@@ -34,7 +34,7 @@ const GalaxyMap = (() => {
     const path = macroPath(name);
     if (!path) return null;
     const p = path.replace(/\\/g, '/');
-    if (!docCache.has(p)) docCache.set(p, (async () => { const t = await CatFS.read(p + '.xml'); try { return t ? XmlDiff.parse(t, p) : null; } catch (e) { return null; } })());
+    if (!docCache.has(p)) docCache.set(p, (async () => { try { return await XmlDiff.loadPatched(p + '.xml'); } catch (e) { return null; } })());
     const doc = await docCache.get(p);
     if (!doc) return null;
     const lname = String(name).toLowerCase();
@@ -58,7 +58,7 @@ const GalaxyMap = (() => {
       const cd = await XmlDiff.loadPatched('libraries/colors.xml');
       const col = new Map(), map = new Map();
       if (cd) {
-        for (const c of cd.getElementsByTagName('color')) if (A(c, 'id')) col.set(A(c, 'id'), `rgb(${A(c, 'r')},${A(c, 'g')},${A(c, 'b')})`);
+        for (const c of cd.getElementsByTagName('color')) if (A(c, 'id')) col.set(A(c, 'id'), `rgb(${Number(A(c, 'r')) | 0},${Number(A(c, 'g')) | 0},${Number(A(c, 'b')) | 0})`);
         for (const m of cd.getElementsByTagName('mapping')) map.set(A(m, 'id'), A(m, 'ref'));
       }
       for (const f of Game.D.factions.values()) {

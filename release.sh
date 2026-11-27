@@ -8,7 +8,9 @@ v="$1"; notes="$2"
 [ -n "$notes" ] || { echo "notes needed"; exit 1; }
 git rev-parse "v$v" >/dev/null 2>&1 && { echo "v$v exists"; exit 1; }
 echo "$v" > VERSION
+ts=$(date +%Y%m%d%H%M%S)
 sed -i -E "s#(id=\"appVersion\"[^>]*>· v)[0-9.]+#\1$v#" index.html
+sed -i -E "s#(\.(css|js)\?v=)[0-9]+#\1$ts#g" index.html
 entry="## $v — $(date +%F)"$'\n'"$(echo "$notes" | tr ';' '\n' | sed 's/^ *//' | grep -v '^$' | sed 's/^/- /')"$'\n'
 python3 - "$entry" <<'PY'
 import sys

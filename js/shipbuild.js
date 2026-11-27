@@ -75,14 +75,14 @@ const ShipBuild = (() => {
   function compute(st) {
     const wares = {}, need = {}, detail = [];
     const busy = {};
-    for (const o of st.shipOrders || []) {
+    (st.shipOrders || []).forEach((o, i) => {
       const c = shipCost(o.macro, o.loadout);
-      if (!c) continue;
+      if (!c) return;
       const perHour = (o.perDay || 0) / 24;
       for (const [w, a] of c.res) wares[w] = (wares[w] || 0) + a * perHour;
       busy[c.cls] = (busy[c.cls] || 0) + perHour * c.time / 3600;
-      detail.push({ macro: o.macro, time: c.time, parts: c.parts, res: [...c.res] });
-    }
+      detail.push({ idx: i, macro: o.macro, time: c.time, parts: c.parts, res: [...c.res] });
+    });
     for (const [cls, b] of Object.entries(busy)) need[cls] = Math.ceil(b - 1e-9);
     st.shipDemand = { wares, need, busy, detail };
     return st.shipDemand;
@@ -103,9 +103,10 @@ const ShipBuild = (() => {
     if (Ships.api.loaded && Military.api.items().length) return true;
     if (loadingNote) return false;
     loadingNote = 'Загрузка кораблей и вооружения…';
-    await Ships.api.load(t => { loadingNote = t; });
-    await Military.api.load(t => { loadingNote = t; });
-    loadingNote = '';
+    try {
+      await Ships.api.load(t => { loadingNote = t; });
+      await Military.api.load(t => { loadingNote = t; });
+    } finally { loadingNote = ''; }
     rerender();
     return false;
   }
@@ -126,7 +127,7 @@ const ShipBuild = (() => {
     const have = present(st), B = builders();
     const orders = (st.shipOrders || []).map((o, i) => {
       const ship = Ships.api.ship(o.macro);
-      const det = d.detail.find(x => x.macro === o.macro);
+      const det = d.detail.find(x => x.idx === i);
       return `<tr><td class="nm">${esc(ship ? Ships.api.shipName(ship) : o.macro)} <small>${esc(CLASS[ship && ship.class] || '')}</small></td>
         <td><input type="number" min="0" step="1" value="${esc(o.perDay)}" data-sbday="${i}" title="Кораблей в сутки"></td>
         <td><select data-sblo="${i}">${Object.entries(LOADOUTS).map(([k, v]) => `<option value="${k}" ${o.loadout === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>

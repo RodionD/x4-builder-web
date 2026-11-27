@@ -19,9 +19,10 @@ const StationLoadout = (() => {
   async function ensure(rerender) {
     if (ready() || loading) return;
     loading = 'Загрузка щитов и турелей…';
-    await Ships.api.load(t => { loading = t; });
-    await Military.api.load(t => { loading = t; });
-    loading = '';
+    try {
+      await Ships.api.load(t => { loading = t; });
+      await Military.api.load(t => { loading = t; });
+    } finally { loading = ''; }
     rerender();
   }
 

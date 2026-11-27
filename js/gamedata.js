@@ -36,10 +36,10 @@ const Game = (() => {
         for (const t of page.getElementsByTagName('t')) D.texts.set(pid + ',' + t.getAttribute('id'), t.textContent);
       }
     };
-    // English first as the fallback, then the chosen language over it
+    // Language-neutral base first, then English as fallback, then the chosen language over it
+    add(await XmlDiff.loadPatched('t/0001.xml', log));
     if (lang !== '44') add(await XmlDiff.loadPatched('t/0001-l044.xml', log));
     add(await XmlDiff.loadPatched(`t/0001-l${lang.padStart(3, '0')}.xml`, log));
-    if (D.texts.size === 0) add(await XmlDiff.loadPatched('t/0001.xml', log));
     D.lang = lang;
   }
 
@@ -134,7 +134,7 @@ const Game = (() => {
         }
       }
       D.wares.set(id, ware);
-      if (ware.component) D.wareByComponent.set(ware.component, id);
+      if (ware.component) D.wareByComponent.set(ware.component.toLowerCase(), id);
     }
     // who uses each ware (primary and secondary resources of every production)
     D.users = new Map();
@@ -181,9 +181,7 @@ const Game = (() => {
   const partCache = new Map();
   async function readXml(path) {
     if (!path) return null;
-    const text = await CatFS.read(path.replace(/\\/g, '/') + '.xml');
-    if (!text) return null;
-    try { return XmlDiff.parse(text, path); } catch (e) { log(e.message); return null; }
+    try { return await XmlDiff.loadPatched(path.replace(/\\/g, '/') + '.xml', log); } catch (e) { log(e.message); return null; }
   }
   async function componentParts(ref) {
     const key = 'c:' + ref;
@@ -240,7 +238,7 @@ const Game = (() => {
     if (conns) for (const c of conns.children) {
       const mr = child(c, 'macro');
       const ref = mr && mr.getAttribute('ref');
-      if (!ref || !/dock/i.test(ref)) continue;
+      if (!ref || !/dock|shipstorage/i.test(ref)) continue;
       const bay = await dockbay(ref);
       if (!bay) continue;
       for (const z of bay.sizes) {
@@ -322,18 +320,17 @@ const Game = (() => {
     }
     let done = 0;
     const work = async ([name, v]) => {
-      const text = await CatFS.read(v + '.xml');
+      let doc;
+      try { doc = await XmlDiff.loadPatched(v + '.xml', log); } catch (e) { log(e.message); doc = null; }
       done++;
       if (progress && done % 40 === 0) progress(`Модули станций: ${done} из ${paths.length}`);
-      if (!text) return;
-      let doc;
-      try { doc = XmlDiff.parse(text, v); } catch (e) { log(e.message); return; }
+      if (!doc) return;
       const ext = (v.match(/^extensions\/([^/]+)\//) || [])[1] || null;
       for (const mac of doc.getElementsByTagName('macro')) {
         const cls = mac.getAttribute('class');
         if (!MODULE_CLASSES.has(cls) || cls === 'connectionmodule') continue;
         const m = parseModule(mac, ext);
-        const wid = D.wareByComponent.get(m.macro);
+        const wid = D.wareByComponent.get((m.macro || '').toLowerCase());
         if (!wid) continue; // as the original: modules nobody builds (no ware) are skipped
         const ware = D.wares.get(wid);
         m.ware = wid;

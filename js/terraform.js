@@ -11,7 +11,7 @@ const Terraform = (() => {
   const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const fmt = (v, d = 0) => (v == null || isNaN(v) ? '' : Number(v).toLocaleString('ru-RU', { minimumFractionDigits: d, maximumFractionDigits: d }));
   const F = { q: '', group: '', sel: null };
-  let T = null; // {stats: Map, groups: [], projects: Map, shipNames: Map}
+  let T = null, loading = null; // {stats: Map, groups: [], projects: Map, shipNames: Map}
 
   const attrs = el => { const o = {}; for (const a of el.attributes) o[a.name] = a.value; return o; };
   const kids = (el, tag) => (el ? [...el.children].filter(c => !tag || c.tagName === tag) : []);
@@ -19,42 +19,50 @@ const Terraform = (() => {
 
   async function load() {
     if (T) return;
-    T = { stats: new Map(), groups: [], projects: new Map(), shipNames: new Map() };
-    const doc = await XmlDiff.loadPatched('libraries/terraforming.xml');
-    if (!doc) return;
-    const root = doc.documentElement;
-    for (const s of kids(childEl(root, 'stats'), 'stat')) {
-      T.stats.set(s.getAttribute('id'), { ...attrs(s), ranges: kids(s, 'range').map(attrs) });
-    }
-    T.groups = kids(childEl(root, 'projectgroups'), 'projectgroup').map(attrs);
-    for (const p of kids(childEl(root, 'projects'), 'project')) {
-      const res = childEl(p, 'resources');
-      T.projects.set(p.getAttribute('id'), {
-        ...attrs(p),
-        conditions: kids(childEl(p, 'conditions')).map(c => ({ tag: c.tagName, ...attrs(c) })),
-        effects: kids(childEl(p, 'effects')).map(attrs),
-        sideeffects: kids(childEl(p, 'sideeffects')).map(attrs),
-        resources: res ? { price: Number(res.getAttribute('price')) || 0, wares: kids(res, 'ware').map(w => ({ ware: w.getAttribute('ware'), amount: Number(w.getAttribute('amount')) || 0 })) } : null,
-        deliveries: kids(childEl(p, 'deliveries')).map(attrs),
-        rebates: kids(childEl(p, 'rebates')).map(attrs),
-        removed: kids(childEl(p, 'removedprojects')).map(x => x.getAttribute('id')),
-        blocked: kids(childEl(p, 'blockedprojects')).map(x => x.getAttribute('id')),
-        blockedGroups: kids(childEl(p, 'blockedgroups')).map(x => x.getAttribute('id') || x.getAttribute('group')),
-      });
-    }
-    // names of the delivery drones
-    const macs = new Set();
-    for (const p of T.projects.values()) for (const d of p.deliveries) if (d.macro) macs.add(d.macro);
-    for (const m of macs) {
-      const path = Game.D.macros.get(m.toLowerCase());
-      let name = m;
-      if (path) {
-        const text = await CatFS.read(path.replace(/\\/g, '/') + '.xml');
-        const mm = text && text.match(/<identification[^>]*\sname="([^"]+)"/);
-        if (mm) name = Game.text(mm[1]) || m;
-      }
-      T.shipNames.set(m, name);
-    }
+    if (loading) return loading;
+    loading = (async () => {
+      try {
+        const t = { stats: new Map(), groups: [], projects: new Map(), shipNames: new Map() };
+        const doc = await XmlDiff.loadPatched('libraries/terraforming.xml');
+        if (doc) {
+          const root = doc.documentElement;
+          for (const s of kids(childEl(root, 'stats'), 'stat')) {
+            t.stats.set(s.getAttribute('id'), { ...attrs(s), ranges: kids(s, 'range').map(attrs) });
+          }
+          t.groups = kids(childEl(root, 'projectgroups'), 'projectgroup').map(attrs);
+          for (const p of kids(childEl(root, 'projects'), 'project')) {
+            const res = childEl(p, 'resources');
+            t.projects.set(p.getAttribute('id'), {
+              ...attrs(p),
+              conditions: kids(childEl(p, 'conditions')).map(c => ({ tag: c.tagName, ...attrs(c) })),
+              effects: kids(childEl(p, 'effects')).map(attrs),
+              sideeffects: kids(childEl(p, 'sideeffects')).map(attrs),
+              resources: res ? { price: Number(res.getAttribute('price')) || 0, wares: kids(res, 'ware').map(w => ({ ware: w.getAttribute('ware'), amount: Number(w.getAttribute('amount')) || 0 })) } : null,
+              deliveries: kids(childEl(p, 'deliveries')).map(attrs),
+              rebates: kids(childEl(p, 'rebates')).map(attrs),
+              removed: kids(childEl(p, 'removedprojects')).map(x => x.getAttribute('id')),
+              blocked: kids(childEl(p, 'blockedprojects')).map(x => x.getAttribute('id')),
+              blockedGroups: kids(childEl(p, 'blockedgroups')).map(x => x.getAttribute('id') || x.getAttribute('group')),
+            });
+          }
+          // names of the delivery drones
+          const macs = new Set();
+          for (const p of t.projects.values()) for (const d of p.deliveries) if (d.macro) macs.add(d.macro);
+          for (const m of macs) {
+            const path = Game.D.macros.get(m.toLowerCase());
+            let name = m;
+            if (path) {
+              const text = await CatFS.read(path.replace(/\\/g, '/') + '.xml');
+              const mm = text && text.match(/<identification[^>]*\sname="([^"]+)"/);
+              if (mm) name = Game.text(mm[1]) || m;
+            }
+            t.shipNames.set(m, name);
+          }
+        }
+        T = t;
+      } finally { loading = null; }
+    })();
+    return loading;
   }
 
   const statName = id => { const s = T.stats.get(id); return s ? Game.text(s.name) || id : id; };
@@ -84,7 +92,7 @@ const Terraform = (() => {
     let resHtml = '';
     if (r && r.wares.length) {
       const base = r.wares.reduce((s, w) => s + ((Game.D.wares.get(w.ware) || { price: { max: 0 } }).price.max) * w.amount, 0);
-      const mul = r.price > 0 && base > 0 ? Math.trunc(r.price / base) : 1;
+      const mul = r.price > 0 && base > 0 ? Math.max(1, Math.trunc(r.price / base)) : 1;
       let total = 0;
       const rows = r.wares.map(w => {
         const ware = Game.D.wares.get(w.ware);
@@ -133,17 +141,20 @@ const Terraform = (() => {
   async function render(root) {
     if (!T) { root.innerHTML = '<p class="hint">Загрузка терраформирования…</p>'; await load(); if (!UI.active('terraform')) return; }
     const q = F.q.toLowerCase();
-    const shown = [...T.projects.values()].filter(p => (!F.group || p.group === F.group) && (!q || (Game.text(p.name) || '').toLowerCase().includes(q) || p.id.includes(q)));
+    const shown = [...T.projects.values()].filter(p => (!F.group || p.group === F.group) && (!q || (Game.text(p.name) || '').toLowerCase().includes(q) || p.id.toLowerCase().includes(q)));
     if (!F.sel || !T.projects.has(F.sel)) F.sel = shown[0] ? shown[0].id : null;
     let rows = '';
-    for (const g of T.groups) {
-      const list = shown.filter(p => p.group === g.id).sort((a, b) => (Game.text(a.name) || a.id).localeCompare(Game.text(b.name) || b.id));
-      if (!list.length) continue;
-      rows += `<tr class="grp"><td colspan="3">${esc(Game.text(g.name) || g.id)} <small>${list.length}</small></td></tr>`;
+    const renderGroup = (gid, gname, list) => {
+      if (!list.length) return;
+      list.sort((a, b) => (Game.text(a.name) || a.id).localeCompare(Game.text(b.name) || b.id));
+      rows += `<tr class="grp"><td colspan="3">${esc(gname)} <small>${list.length}</small></td></tr>`;
       rows += list.map(p => `<tr data-proj="${esc(p.id)}" class="${p.id === F.sel ? 'on' : ''}"><td class="nm">${esc(Game.text(p.name) || p.id)}</td>
         <td class="small info">${p.effects.map(e => `${esc(statName(e.stat))} ${Number(e.change) > 0 ? '+' : ''}${esc(e.change)}`).join(', ')}</td>
         <td>${p.resources && p.resources.price ? fmt(p.resources.price) : ''}</td></tr>`).join('');
-    }
+    };
+    const knownGroups = new Set(T.groups.map(g => g.id));
+    for (const g of T.groups) renderGroup(g.id, Game.text(g.name) || g.id, shown.filter(p => p.group === g.id));
+    renderGroup('', 'Прочее', shown.filter(p => !knownGroups.has(p.group)));
     // the stats and their ranges, as the game's planet screen
     const stats = [...T.stats.values()].map(s => `<tr><td>${esc(Game.text(s.name) || s.id)}</td><td class="small">${s.ranges.filter(r => r.description || r.state !== '0').map(r => `≤${esc(r.end)}${r.habitable === 'false' ? ' ✗' : ''}`).join(' · ')}</td><td>${esc(s.default)}</td></tr>`).join('');
     const sel = T.projects.get(F.sel);
@@ -161,7 +172,7 @@ const Terraform = (() => {
 
   function click(t, root) {
     const p = t.closest('[data-proj]');
-    if (p) { F.sel = p.dataset.proj; if (F.group && T.projects.get(F.sel).group !== F.group) F.group = ''; render(root); return true; }
+    if (p) { F.sel = p.dataset.proj; const po = T.projects.get(F.sel); if (F.group && (!po || po.group !== F.group)) F.group = ''; render(root); return true; }
     return false;
   }
   function change(t, root) {
@@ -172,7 +183,7 @@ const Terraform = (() => {
     if (t.id === 'tq') { F.q = t.value; const pos = t.selectionStart; render(root).then(() => { const n = root.querySelector('#tq'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }); return true; }
     return false;
   }
-  function reset() { T = null; }
+  function reset() { T = null; loading = null; }
 
   return { render, click, change, input, reset, F };
 })();

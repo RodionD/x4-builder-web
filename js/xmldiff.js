@@ -40,31 +40,32 @@ const XmlDiff = (() => {
       try { targets = select(doc, sel); } catch (e) { bad++; log && log(`${src}: неверный sel ${sel}`); continue; }
       const silent = op.getAttribute('silent') === 'true' || op.getAttribute('silent') === '1';
       if (!targets.length) { if (!silent) { bad++; log && log(`${src}: ${op.tagName} ${sel} - не найдено`); } continue; }
-      const t = targets[0];
       try {
-        if (op.tagName === 'add') {
-          const type = op.getAttribute('type');
-          const pos = op.getAttribute('pos');
-          if (type && type.startsWith('@')) {
-            t.setAttribute(type.slice(1), op.textContent);
-          } else {
-            const nodes = importChildren(doc, op);
-            if (pos === 'before') for (const n of nodes) t.parentNode.insertBefore(n, t);
-            else if (pos === 'after') { let ref = t.nextSibling; for (const n of nodes) t.parentNode.insertBefore(n, ref); }
-            else if (pos === 'prepend') { const first = t.firstChild; for (const n of nodes) t.insertBefore(n, first); }
-            else for (const n of nodes) t.appendChild(n);
+        for (const t of targets) {
+          if (op.tagName === 'add') {
+            const type = op.getAttribute('type');
+            const pos = op.getAttribute('pos');
+            if (type && type.startsWith('@')) {
+              t.setAttribute(type.slice(1), op.textContent);
+            } else {
+              const nodes = importChildren(doc, op);
+              if (pos === 'before') for (const n of nodes) t.parentNode.insertBefore(n, t);
+              else if (pos === 'after') { let ref = t.nextSibling; for (const n of nodes) t.parentNode.insertBefore(n, ref); }
+              else if (pos === 'prepend') { const first = t.firstChild; for (const n of nodes) t.insertBefore(n, first); }
+              else for (const n of nodes) t.appendChild(n);
+            }
+          } else if (op.tagName === 'replace') {
+            if (t.nodeType === 2) t.ownerElement.setAttribute(t.name, op.textContent);
+            else if (t.nodeType === 3) t.textContent = op.textContent;
+            else {
+              const nodes = importChildren(doc, op).filter(n => n.nodeType === 1);
+              for (const n of nodes) t.parentNode.insertBefore(n, t);
+              t.parentNode.removeChild(t);
+            }
+          } else if (op.tagName === 'remove') {
+            if (t.nodeType === 2) t.ownerElement.removeAttribute(t.name);
+            else t.parentNode.removeChild(t);
           }
-        } else if (op.tagName === 'replace') {
-          if (t.nodeType === 2) t.ownerElement.setAttribute(t.name, op.textContent);
-          else if (t.nodeType === 3) t.textContent = op.textContent;
-          else {
-            const nodes = importChildren(doc, op).filter(n => n.nodeType === 1);
-            for (const n of nodes) t.parentNode.insertBefore(n, t);
-            t.parentNode.removeChild(t);
-          }
-        } else if (op.tagName === 'remove') {
-          if (t.nodeType === 2) t.ownerElement.removeAttribute(t.name);
-          else t.parentNode.removeChild(t);
         }
         ok++;
       } catch (e) { bad++; log && log(`${src}: ${op.tagName} ${sel}: ${e.message}`); }
